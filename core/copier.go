@@ -24,14 +24,15 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
 )
 
-var CopierClosed = errors.New("copier closed")
+var ErrCopierClosed = errors.New("copier closed")
 
 type Copier interface {
-	DownloadFile(ctx context.Context, bb *blockblob.Client, filePath string, blockSize int64) (int64, error)
-	UploadFile(ctx context.Context, b *blockblob.Client, filepath string, blockSize int64) error
+	DownloadFile(ctx context.Context, bb *blockblob.Client, filepath string, o *blob.DownloadFileOptions) (int64, error)
+	UploadFile(ctx context.Context, b *blockblob.Client, filepath string, o *blockblob.UploadFileOptions) error
 	Close()
 }
 
@@ -53,12 +54,13 @@ func (c *copier) Close() {
 func (c *copier) execute(f func()) error {
 	select {
 	case <-c.ctx.Done():
-		return CopierClosed
+		return ErrCopierClosed
 	case c.opChan <- f:
 		return nil
 	}
 }
 
+// monitor context will cancel ctx if copier was cancelled.
 func (c *copier) monitorContext(ctx context.Context, cancel context.CancelFunc) {
 	select {
 	case <-c.ctx.Done():

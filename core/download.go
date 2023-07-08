@@ -32,17 +32,29 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
 )
 
+
+func downloadFileOptionsToStreamOptions(f *blob.DownloadFileOptions) (*blob.DownloadStreamOptions) {
+    return &blob.DownloadStreamOptions{
+        AccessConditions: f.AccessConditions,
+        CPKInfo: f.CPKInfo,
+        CPKScopeInfo: f.CPKScopeInfo,
+    }
+}
+/*
+ * Downloads file pointed by bb to filepath.
+ * Range and concurrency options are not supported.
+ */
 func (c *copier) DownloadFile(
 	ctx context.Context,
 	bb *blockblob.Client,
 	filepath string,
-	blockSize int64) (int64, error) {
+    o *blob.DownloadFileOptions) (int64, error) {
+
+    b := bb.BlobClient()
 
     ctx, cancel := context.WithCancel(ctx)
     defer cancel()
     go c.monitorContext(ctx, cancel)
-
-	b := bb.BlobClient()
 
 	// 1. Calculate the size of the destination file
 	var size int64
@@ -75,18 +87,18 @@ func (c *copier) DownloadFile(
 		return 0, nil
 	}
 
-	if size <= blockSize { //perform a single thread copy here.
-		dr, err := b.DownloadStream(ctx, nil)
+	if size <= o.BlockSize { //perform a single thread copy here.
+		dr, err := b.DownloadStream(ctx, downloadFileOptionsToStreamOptions(o))
 		if err != nil {
 			return 0, err
 		}
-		var body io.ReadCloser = dr.NewRetryReader(ctx, nil)
+		var body io.ReadCloser = dr.NewRetryReader(ctx, &o.RetryReaderOptionsPerBlock)
 		defer body.Close()
 
 		return io.Copy(file, newPacedReader(ctx, c.pacer, body))
 	}
 
-	return c.downloadInternal(ctx, cancel, b, file, size, blockSize)
+	return c.downloadInternal(ctx, cancel, b, file, size, o)
 }
 
 func (c *copier) downloadInternal(
@@ -95,7 +107,7 @@ func (c *copier) downloadInternal(
 	b *blob.Client,
 	file *os.File,
 	fileSize int64,
-	blockSize int64) (int64, error) {
+    o *blob.DownloadFileOptions) (int64, error) {
 	// short hand for routines to report and error
 	errorChannel := make(chan error)
 	postError := func(err error) {
@@ -110,7 +122,7 @@ func (c *copier) downloadInternal(
 
 	// file serial writer
 	count := fileSize
-	numBlocks := uint16(((count - 1) / blockSize) + 1)
+	numBlocks := uint16(((count - 1) / o.BlockSize) + 1)
 
 	blocks := make([]chan []byte, numBlocks)
 	for i := range blocks {
@@ -148,16 +160,16 @@ func (c *copier) downloadInternal(
 	downloadBlock := func(buff []byte, blockNum uint16, currentBlockSize, offset int64) {
 		defer wg.Done()
 
-		dr, err := b.DownloadStream(ctx, &blob.DownloadStreamOptions{
-			Range: blob.HTTPRange{Offset: offset, Count: currentBlockSize},
-		})
+        options := downloadFileOptionsToStreamOptions(o)
+        options.Range = blob.HTTPRange{Offset: offset, Count: currentBlockSize}
+		dr, err := b.DownloadStream(ctx, options)
 
 		if err != nil {
 			postError(err)
 			return
 		}
 
-		var body io.ReadCloser = dr.NewRetryReader(ctx, nil)
+		var body io.ReadCloser = dr.NewRetryReader(ctx, &o.RetryReaderOptionsPerBlock)
 		defer body.Close()
 
 		if err := c.pacer.RequestTrafficAllocation(ctx, int64(len(buff))); err != nil {
@@ -185,17 +197,16 @@ func (c *copier) downloadInternal(
 		// cancel the context if any block reports error
 		err = <-errorChannel
 		cancel()
-		return
 	}()
 
 	for blockNum := uint16(0); blockNum < numBlocks; blockNum++ {
-		currBlockSize := blockSize
+		currBlockSize := o.BlockSize
 		if blockNum == numBlocks-1 { // Last block
 			// Remove size of all transferred blocks from total
-			currBlockSize = count - (int64(blockNum) * blockSize)
+			currBlockSize = count - (int64(blockNum) * o.BlockSize)
 		}
 
-		offset := int64(blockNum) * blockSize
+		offset := int64(blockNum) * o.BlockSize
 
 		// allocate a buffer. This buffer will be released by the fileWriter
 		if err := c.cacheLimiter.WaitUntilAdd(ctx, currBlockSize, nil); err != nil {

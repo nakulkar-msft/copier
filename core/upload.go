@@ -42,11 +42,47 @@ func withNopCloser(r io.ReadSeeker) io.ReadSeekCloser {
 	return nopCloser{r}
 }
 
+
+func getUploadOptions(o *blockblob.UploadFileOptions) (*blockblob.UploadOptions) {
+    return &blockblob.UploadOptions{
+        Tags: o.Tags, 
+        Metadata: o.Metadata,
+        Tier: o.AccessTier,
+        HTTPHeaders: o.HTTPHeaders,
+        CPKInfo: o.CPKInfo,
+        CPKScopeInfo: o.CPKScopeInfo,
+        AccessConditions: o.AccessConditions,
+    }
+}
+
+func getStageBlockOptions(o *blockblob.UploadFileOptions) *blockblob.StageBlockOptions {
+	return &blockblob.StageBlockOptions{
+		CPKInfo:               o.CPKInfo,
+		CPKScopeInfo:          o.CPKScopeInfo,
+		LeaseAccessConditions: o.AccessConditions.LeaseAccessConditions,
+	}
+}
+
+func getCommitBlockListOptions(o *blockblob.UploadFileOptions) *blockblob.CommitBlockListOptions {
+    return &blockblob.CommitBlockListOptions {
+        Tags: o.Tags,
+        Metadata: o.Metadata,
+        Tier: o.AccessTier,
+        HTTPHeaders: o.HTTPHeaders,
+        CPKInfo: o.CPKInfo,
+        CPKScopeInfo: o.CPKScopeInfo,
+        AccessConditions: o.AccessConditions,
+    }
+}
+/* 
+ * Upload file will upload filepath to blob pointed by b.
+ * only [Blocksize, Tags, Metadata, AccessTier, HTTPHeaders, CPKInfo, CPKScopeInfo, AccessConditions]
+ * fields in UploadOptions are supported.
+ */
 func (c *copier) UploadFile(ctx context.Context,
 	                        b *blockblob.Client,
                             filepath string,
-                            blockSize int64) error {
-
+                            o *blockblob.UploadFileOptions) error {
     ctx, cancel := context.WithCancel(ctx)
     defer cancel()
     go c.monitorContext(ctx, cancel)
@@ -65,12 +101,12 @@ func (c *copier) UploadFile(ctx context.Context,
 
 	fileSize := stat.Size()
 
-	if fileSize <= blockSize { //perform a single thread copy here.
-		_, err := b.Upload(ctx, newPacedReadSeekCloser(ctx, c.pacer, file), &blockblob.UploadOptions{})
+	if fileSize <= o.BlockSize { //perform a single thread copy here.
+		_, err := b.Upload(ctx, newPacedReadSeekCloser(ctx, c.pacer, file), getUploadOptions(o))
 		return err
 	}
 
-	return c.uploadInternal(ctx, cancel, b, file, fileSize, blockSize)
+	return c.uploadInternal(ctx, cancel, b, file, fileSize, o)
 }
 
 func (c *copier) uploadInternal(ctx context.Context,
@@ -78,7 +114,7 @@ func (c *copier) uploadInternal(ctx context.Context,
                                 b *blockblob.Client,
                                 file io.ReadSeekCloser,
                                 fileSize int64,
-                                blockSize int64) error {
+                                o *blockblob.UploadFileOptions) error {
 	// short hand for routines to report and error
 	errorChannel := make(chan error)
 	postError := func(err error) {
@@ -88,7 +124,7 @@ func (c *copier) uploadInternal(ctx context.Context,
 		}
 	}
 
-	numBlocks := uint16(((fileSize - 1) / blockSize) + 1)
+	numBlocks := uint16(((fileSize - 1) / o.BlockSize) + 1)
 	var wg sync.WaitGroup
 
 	blockNames := make([]string, numBlocks)
@@ -99,7 +135,7 @@ func (c *copier) uploadInternal(ctx context.Context,
 		blockName := base64.StdEncoding.EncodeToString([]byte(uuid.New().String()))
 		blockNames[blockIndex] = blockName
 
-		_, err := b.StageBlock(ctx, blockNames[blockIndex], body, &blockblob.StageBlockOptions{})
+		_, err := b.StageBlock(ctx, blockNames[blockIndex], body, getStageBlockOptions(o))
 		if err != nil {
 			postError(err)
 		}
@@ -111,14 +147,13 @@ func (c *copier) uploadInternal(ctx context.Context,
 		// cancel the context if any block reports error
 		err = <-errorChannel
 		cancel()
-		return
 	}()
 
 	for blockNum := uint16(0); blockNum < numBlocks; blockNum++ {
-		currBlockSize := blockSize
+		currBlockSize := o.BlockSize
 		if blockNum == numBlocks-1 { // Last block
 			// Remove size of all transferred blocks from total
-			currBlockSize = fileSize - (int64(blockNum) * blockSize)
+			currBlockSize = fileSize - (int64(blockNum) * o.BlockSize)
 		}
 
 		if err := c.cacheLimiter.WaitUntilAdd(ctx, currBlockSize, nil); err != nil {
@@ -151,7 +186,7 @@ func (c *copier) uploadInternal(ctx context.Context,
 		return err
 	}
 
-	_, err = b.CommitBlockList(ctx, blockNames, &blockblob.CommitBlockListOptions{})
+	_, err = b.CommitBlockList(ctx, blockNames, getCommitBlockListOptions(o))
 
 	return err
 }
