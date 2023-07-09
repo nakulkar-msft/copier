@@ -38,9 +38,9 @@ type Copier interface {
 
 type copier struct {
 	ctx          context.Context
-	pacer        PacerAdmin
-	slicePool    ByteSlicePooler
-	cacheLimiter CacheLimiter
+	pacer        iPacerAdmin
+	slicePool    iByteSlicePooler
+	cacheLimiter iCacheLimiter
 	opChan       chan func()
 	closer       context.CancelFunc
 }
@@ -75,8 +75,8 @@ func NewCopier(throughputBytesPerSec int64,
 	concurrency int) Copier {
 
 	pacer := NewTokenBucketPacer(throughputBytesPerSec, int64(0))
-	slicePool := NewMultiSizeSlicePool(maxSliceLength)
-	cachelimiter := NewCacheLimiter(memLimit)
+	slicePool := newMultiSizeSlicePool(maxSliceLength)
+	cachelimiter := newCacheLimiter(memLimit)
 	opChan := make(chan func())
 
 	ctx, cancel := context.WithCancel(context.TODO())

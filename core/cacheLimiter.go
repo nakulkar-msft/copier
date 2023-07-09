@@ -30,6 +30,7 @@ import (
 // The percentage of a CacheLimiter's Limit that is considered
 // the strict limit.
 var cacheLimiterStrictLimitPercentage = float32(0.75)
+
 // Rationale for the level of the strict limit: as at Jan 2018, we are using 0.75 of the total as the strict
 // limit, leaving the other 0.25 of the total accessible under the "relaxed" limit.
 // That last 25% gets use for two things: in downloads it is used for things where we KNOW there's
@@ -39,16 +40,16 @@ var cacheLimiterStrictLimitPercentage = float32(0.75)
 // TODO: now that cacheLimiter is used for multiple purposes, the hard-coding of the distinction between
 //   relaxed and strict limits is less appropriate. Refactor to make it a configuration param of the instance?
 
-type Predicate func() bool
+type predicate func() bool
 
 // Used to limit the amounts of things. E.g. amount of in-flight data in RAM, to keep it an an acceptable level.
 // Also used for number of open files (since that's limited on Linux).
 // In the case of RAM usage, for downloads, network is producer and disk is consumer, while for uploads the roles are reversed.
-// In either case, if the producer is faster than the consumer, this CacheLimiter is necessary
+// In either case, if the producer is faster than the consumer, this iCacheLimiter is necessary
 // prevent unbounded RAM usage.
-type CacheLimiter interface {
+type iCacheLimiter interface {
 	TryAdd(count int64, useRelaxedLimit bool) (added bool)
-	WaitUntilAdd(ctx context.Context, count int64, useRelaxedLimit Predicate) error
+	WaitUntilAdd(ctx context.Context, count int64, useRelaxedLimit predicate) error
 	Remove(count int64)
 	Limit() int64
 	StrictLimit() int64
@@ -59,7 +60,7 @@ type cacheLimiter struct {
 	limit int64
 }
 
-func NewCacheLimiter(limit int64) CacheLimiter {
+func newCacheLimiter(limit int64) iCacheLimiter {
 	return &cacheLimiter{limit: limit}
 }
 
@@ -82,10 +83,10 @@ func (c *cacheLimiter) TryAdd(count int64, useRelaxedLimit bool) (added bool) {
 	return false
 }
 
-/// WaitUntilAddBytes blocks until it completes a successful call to TryAddBytes
-func (c *cacheLimiter) WaitUntilAdd(ctx context.Context, count int64, useRelaxedLimit Predicate) error {
+// / WaitUntilAddBytes blocks until it completes a successful call to TryAddBytes
+func (c *cacheLimiter) WaitUntilAdd(ctx context.Context, count int64, useRelaxedLimit predicate) error {
 	if useRelaxedLimit == nil {
-		useRelaxedLimit = func() bool {return true}
+		useRelaxedLimit = func() bool { return true }
 	}
 	for {
 		// Proceed if there's room in the cache

@@ -31,7 +31,7 @@ type nullAutoPacer struct {
 	atomicGrandTotal int64
 }
 
-func NewNullAutoPacer() *nullAutoPacer {
+func newNullAutoPacer() *nullAutoPacer {
 	return &nullAutoPacer{}
 }
 

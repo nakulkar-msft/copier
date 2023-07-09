@@ -25,7 +25,7 @@ import "hash"
 // A hash.Hash implementation that does nothing
 type nullHasher struct{}
 
-func NewNullHasher() hash.Hash {
+func newNullHasher() hash.Hash {
 	return &nullHasher{}
 }
 

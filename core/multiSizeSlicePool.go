@@ -26,7 +26,7 @@ import (
 
 // A pool of byte slices
 // Like sync.Pool, but strongly-typed to byte slices
-type ByteSlicePooler interface {
+type iByteSlicePooler interface {
 	RentSlice(desiredLength int64) []byte
 	ReturnSlice(slice []byte)
 	Prune()
@@ -83,7 +83,7 @@ type multiSizeSlicePool struct {
 }
 
 // Create new slice pool capable of pooling slices up to maxSliceLength in size
-func NewMultiSizeSlicePool(maxSliceLength int64) ByteSlicePooler {
+func newMultiSizeSlicePool(maxSliceLength int64) iByteSlicePooler {
 	maxSlotIndex, _ := getSlotInfo(maxSliceLength)
 	poolsBySize := make([]*simpleSlicePool, maxSlotIndex+1)
 	for i := 0; i <= maxSlotIndex; i++ {

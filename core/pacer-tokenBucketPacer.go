@@ -28,6 +28,7 @@ import (
 )
 
 const deadBandDuration = 20 * time.Second
+
 // pacer is used by callers whose activity must be controlled to a certain pace
 type pacer interface {
 
@@ -45,7 +46,7 @@ type pacer interface {
 	Close() error
 }
 
-type PacerAdmin interface {
+type iPacerAdmin interface {
 	pacer
 
 	// GetTotalTraffic returns the cumulative count of all traffic that has been processed
@@ -120,7 +121,7 @@ func (p *tokenBucketPacer) RequestTrafficAllocation(ctx context.Context, byteCou
 		case <-time.After(modifiedSleepDuration):
 			// keep looping
 		}
-		
+
 		// If we've updated target to a NULL pacer, we'll return immediately
 		if p.targetBytesPerSecond() == 0 {
 			atomic.AddInt64(&p.atomicGrandTotal, byteCount)
@@ -158,7 +159,7 @@ func (p *tokenBucketPacer) pacerBody() {
 		select {
 		case <-p.done:
 			return
-		case newTarget = <- p.newTargetBytesPerSecond:
+		case newTarget = <-p.newTargetBytesPerSecond:
 		default:
 		}
 
@@ -181,17 +182,17 @@ func (p *tokenBucketPacer) pacerBody() {
 			maxAllowedUnsentBytes = p.expectedBytesPerRequest // just in case we are very coarse grained at a very slow speed
 		}
 		if newTokenCount > maxAllowedUnsentBytes {
-      for {
-        currentVal := atomic.LoadInt64(&p.atomicTokenBucket)
-        newVal := currentVal
-        if currentVal > maxAllowedUnsentBytes {
-          newVal = maxAllowedUnsentBytes
-        }
+			for {
+				currentVal := atomic.LoadInt64(&p.atomicTokenBucket)
+				newVal := currentVal
+				if currentVal > maxAllowedUnsentBytes {
+					newVal = maxAllowedUnsentBytes
+				}
 
-        if atomic.CompareAndSwapInt64(&p.atomicTokenBucket, currentVal, newVal) {
-          break
-        }
-      }
+				if atomic.CompareAndSwapInt64(&p.atomicTokenBucket, currentVal, newVal) {
+					break
+				}
+			}
 		}
 
 		lastTime = time.Now()
