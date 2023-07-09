@@ -101,6 +101,14 @@ func (c *copier) UploadFile(ctx context.Context,
 
 	fileSize := stat.Size()
 
+    // set defaults
+    if o.BlockSize == 0 {
+        o.BlockSize, err = getBlockSize(fileSize)
+        if err != nil {
+            return err
+        }
+    }
+
 	if fileSize <= o.BlockSize { //perform a single thread copy here.
 		_, err := b.Upload(ctx, newPacedReadSeekCloser(ctx, c.pacer, file), getUploadOptions(o))
 		return err

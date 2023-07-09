@@ -50,6 +50,11 @@ func (c *copier) DownloadFile(
 	filepath string,
     o *blob.DownloadFileOptions) (int64, error) {
 
+    // set defaults
+    if o.BlockSize == 0 {
+        o.BlockSize = defaultBlockBlobBlockSize
+    }
+
     b := bb.BlobClient()
 
     ctx, cancel := context.WithCancel(ctx)
