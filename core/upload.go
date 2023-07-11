@@ -28,6 +28,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
 	"github.com/google/uuid"
 )
@@ -56,10 +57,14 @@ func getUploadOptions(o *blockblob.UploadFileOptions) (*blockblob.UploadOptions)
 }
 
 func getStageBlockOptions(o *blockblob.UploadFileOptions) *blockblob.StageBlockOptions {
+	var accessConditions *blob.LeaseAccessConditions
+	if o.AccessConditions != nil {
+        accessConditions = o.AccessConditions.LeaseAccessConditions
+	}
 	return &blockblob.StageBlockOptions{
 		CPKInfo:               o.CPKInfo,
 		CPKScopeInfo:          o.CPKScopeInfo,
-		LeaseAccessConditions: o.AccessConditions.LeaseAccessConditions,
+		LeaseAccessConditions: accessConditions,
 	}
 }
 
@@ -85,6 +90,10 @@ func (c *copier) UploadFile(ctx context.Context,
                             o *blockblob.UploadFileOptions) error {
     ctx, cancel := context.WithCancel(ctx)
     defer cancel()
+    
+    if o == nil {
+        o = &blockblob.UploadFileOptions{}
+    }
     go c.monitorContext(ctx, cancel)
 
 	// 1. Calculate the size of the destination file

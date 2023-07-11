@@ -32,14 +32,14 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
 )
 
-
-func downloadFileOptionsToStreamOptions(f *blob.DownloadFileOptions) (*blob.DownloadStreamOptions) {
-    return &blob.DownloadStreamOptions{
-        AccessConditions: f.AccessConditions,
-        CPKInfo: f.CPKInfo,
-        CPKScopeInfo: f.CPKScopeInfo,
-    }
+func downloadFileOptionsToStreamOptions(f *blob.DownloadFileOptions) *blob.DownloadStreamOptions {
+	return &blob.DownloadStreamOptions{
+		AccessConditions: f.AccessConditions,
+		CPKInfo:          f.CPKInfo,
+		CPKScopeInfo:     f.CPKScopeInfo,
+	}
 }
+
 /*
  * Downloads file pointed by bb to filepath.
  * Range and concurrency options are not supported.
@@ -48,18 +48,22 @@ func (c *copier) DownloadFile(
 	ctx context.Context,
 	bb *blockblob.Client,
 	filepath string,
-    o *blob.DownloadFileOptions) (int64, error) {
+	o *blob.DownloadFileOptions) (int64, error) {
+	
+	if o == nil {
+		o = &blob.DownloadFileOptions{}
+	}
 
-    // set defaults
-    if o.BlockSize == 0 {
-        o.BlockSize = defaultBlockBlobBlockSize
-    }
+	// set defaults
+	if o.BlockSize == 0 {
+		o.BlockSize = defaultBlockBlobBlockSize
+	}
 
-    b := bb.BlobClient()
+	b := bb.BlobClient()
 
-    ctx, cancel := context.WithCancel(ctx)
-    defer cancel()
-    go c.monitorContext(ctx, cancel)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go c.monitorContext(ctx, cancel)
 
 	// 1. Calculate the size of the destination file
 	var size int64
@@ -70,7 +74,7 @@ func (c *copier) DownloadFile(
 	size = *props.ContentLength
 
 	// Because we'll write the file serially, open in APPEND mode
-	file, err := os.OpenFile(filepath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return 0, err
 	}
@@ -100,7 +104,7 @@ func (c *copier) DownloadFile(
 		var body io.ReadCloser = dr.NewRetryReader(ctx, &o.RetryReaderOptionsPerBlock)
 		defer body.Close()
 
-		return io.Copy(file, newPacedReader(ctx, c.pacer, body))
+		return file.ReadFrom(newPacedReader(ctx, c.pacer, body)) 
 	}
 
 	return c.downloadInternal(ctx, cancel, b, file, size, o)
@@ -108,11 +112,11 @@ func (c *copier) DownloadFile(
 
 func (c *copier) downloadInternal(
 	ctx context.Context,
-    cancel context.CancelFunc,
+	cancel context.CancelFunc,
 	b *blob.Client,
 	file *os.File,
 	fileSize int64,
-    o *blob.DownloadFileOptions) (int64, error) {
+	o *blob.DownloadFileOptions) (int64, error) {
 	// short hand for routines to report and error
 	errorChannel := make(chan error)
 	postError := func(err error) {
@@ -135,7 +139,9 @@ func (c *copier) downloadInternal(
 	}
 
 	totalWrite := int64(0)
+	wg.Add(1) // for the writer below
 	go func() {
+		defer wg.Done();
 		for _, block := range blocks {
 			select {
 			case <-ctx.Done():
@@ -159,14 +165,15 @@ func (c *copier) downloadInternal(
 		if totalWrite != count {
 			postError(io.ErrShortWrite)
 		}
+		file.Sync()
 	}()
 
 	// DownloadBlock func downloads each block of the blob into buffer provided
 	downloadBlock := func(buff []byte, blockNum uint16, currentBlockSize, offset int64) {
 		defer wg.Done()
 
-        options := downloadFileOptionsToStreamOptions(o)
-        options.Range = blob.HTTPRange{Offset: offset, Count: currentBlockSize}
+		options := downloadFileOptionsToStreamOptions(o)
+		options.Range = blob.HTTPRange{Offset: offset, Count: currentBlockSize}
 		dr, err := b.DownloadStream(ctx, options)
 
 		if err != nil {
@@ -228,7 +235,7 @@ func (c *copier) downloadInternal(
 
 		// send
 		wg.Add(1)
-        c.execute(f)
+		c.execute(f)
 	}
 
 	// Wait for all chunks to be done.
