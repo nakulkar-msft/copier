@@ -21,9 +21,7 @@
 package copier
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"io"
 	"os"
 	"sync"
@@ -49,7 +47,7 @@ func (c *copier) DownloadFile(
 	bb *blockblob.Client,
 	filepath string,
 	o *blob.DownloadFileOptions) (int64, error) {
-	
+
 	if o == nil {
 		o = &blob.DownloadFileOptions{}
 	}
@@ -73,7 +71,6 @@ func (c *copier) DownloadFile(
 	}
 	size = *props.ContentLength
 
-	// Because we'll write the file serially, open in APPEND mode
 	file, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return 0, err
@@ -104,7 +101,7 @@ func (c *copier) DownloadFile(
 		var body io.ReadCloser = dr.NewRetryReader(ctx, &o.RetryReaderOptionsPerBlock)
 		defer body.Close()
 
-		return file.ReadFrom(newPacedReader(ctx, c.pacer, body)) 
+		return file.ReadFrom(newPacedReader(ctx, c.pacer, body))
 	}
 
 	return c.downloadInternal(ctx, cancel, b, file, size, o)
@@ -141,7 +138,7 @@ func (c *copier) downloadInternal(
 	totalWrite := int64(0)
 	wg.Add(1) // for the writer below
 	go func() {
-		defer wg.Done();
+		defer wg.Done()
 		for _, block := range blocks {
 			select {
 			case <-ctx.Done():
@@ -189,13 +186,9 @@ func (c *copier) downloadInternal(
 			return
 		}
 
-		n, err := io.Copy(bytes.NewBuffer(buff), body)
+		_, err = io.ReadFull(body, buff)
 		if err != nil {
 			postError(err)
-			return
-		}
-		if int64(n) != currentBlockSize {
-			postError(errors.New("invalid read"))
 			return
 		}
 
