@@ -156,6 +156,9 @@ func (c *copier) uploadInternal(ctx context.Context,
 		if err != nil {
 			postError(err)
 		}
+		if o.Progress != nil {
+			o.Progress(int64(len(buff)))
+		}
 	}
 
 	var err error
