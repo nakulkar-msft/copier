@@ -155,6 +155,7 @@ func (c *copier) downloadInternal(
 				}
 
 				c.slicePool.ReturnSlice(buff)
+				c.cacheLimiter.Remove(int64(len(buff)))
 				totalWrite += int64(n)
 				if o.Progress != nil {
 					o.Progress(int64(n))

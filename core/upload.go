@@ -43,23 +43,22 @@ func withNopCloser(r io.ReadSeeker) io.ReadSeekCloser {
 	return nopCloser{r}
 }
 
-
-func getUploadOptions(o *blockblob.UploadFileOptions) (*blockblob.UploadOptions) {
-    return &blockblob.UploadOptions{
-        Tags: o.Tags, 
-        Metadata: o.Metadata,
-        Tier: o.AccessTier,
-        HTTPHeaders: o.HTTPHeaders,
-        CPKInfo: o.CPKInfo,
-        CPKScopeInfo: o.CPKScopeInfo,
-        AccessConditions: o.AccessConditions,
-    }
+func getUploadOptions(o *blockblob.UploadFileOptions) *blockblob.UploadOptions {
+	return &blockblob.UploadOptions{
+		Tags:             o.Tags,
+		Metadata:         o.Metadata,
+		Tier:             o.AccessTier,
+		HTTPHeaders:      o.HTTPHeaders,
+		CPKInfo:          o.CPKInfo,
+		CPKScopeInfo:     o.CPKScopeInfo,
+		AccessConditions: o.AccessConditions,
+	}
 }
 
 func getStageBlockOptions(o *blockblob.UploadFileOptions) *blockblob.StageBlockOptions {
 	var accessConditions *blob.LeaseAccessConditions
 	if o.AccessConditions != nil {
-        accessConditions = o.AccessConditions.LeaseAccessConditions
+		accessConditions = o.AccessConditions.LeaseAccessConditions
 	}
 	return &blockblob.StageBlockOptions{
 		CPKInfo:               o.CPKInfo,
@@ -69,32 +68,33 @@ func getStageBlockOptions(o *blockblob.UploadFileOptions) *blockblob.StageBlockO
 }
 
 func getCommitBlockListOptions(o *blockblob.UploadFileOptions) *blockblob.CommitBlockListOptions {
-    return &blockblob.CommitBlockListOptions {
-        Tags: o.Tags,
-        Metadata: o.Metadata,
-        Tier: o.AccessTier,
-        HTTPHeaders: o.HTTPHeaders,
-        CPKInfo: o.CPKInfo,
-        CPKScopeInfo: o.CPKScopeInfo,
-        AccessConditions: o.AccessConditions,
-    }
+	return &blockblob.CommitBlockListOptions{
+		Tags:             o.Tags,
+		Metadata:         o.Metadata,
+		Tier:             o.AccessTier,
+		HTTPHeaders:      o.HTTPHeaders,
+		CPKInfo:          o.CPKInfo,
+		CPKScopeInfo:     o.CPKScopeInfo,
+		AccessConditions: o.AccessConditions,
+	}
 }
-/* 
+
+/*
  * Upload file will upload filepath to blob pointed by b.
  * only [Blocksize, Tags, Metadata, AccessTier, HTTPHeaders, CPKInfo, CPKScopeInfo, AccessConditions]
  * fields in UploadOptions are supported.
  */
 func (c *copier) UploadFile(ctx context.Context,
-	                        b *blockblob.Client,
-                            filepath string,
-                            o *blockblob.UploadFileOptions) error {
-    ctx, cancel := context.WithCancel(ctx)
-    defer cancel()
-    
-    if o == nil {
-        o = &blockblob.UploadFileOptions{}
-    }
-    go c.monitorContext(ctx, cancel)
+	b *blockblob.Client,
+	filepath string,
+	o *blockblob.UploadFileOptions) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	if o == nil {
+		o = &blockblob.UploadFileOptions{}
+	}
+	go c.monitorContext(ctx, cancel)
 
 	// 1. Calculate the size of the destination file
 	file, err := os.Open(filepath)
@@ -110,13 +110,13 @@ func (c *copier) UploadFile(ctx context.Context,
 
 	fileSize := stat.Size()
 
-    // set defaults
-    if o.BlockSize == 0 {
-        o.BlockSize, err = getBlockSize(fileSize)
-        if err != nil {
-            return err
-        }
-    }
+	// set defaults
+	if o.BlockSize == 0 {
+		o.BlockSize, err = getBlockSize(fileSize)
+		if err != nil {
+			return err
+		}
+	}
 
 	if fileSize <= o.BlockSize { //perform a single thread copy here.
 		_, err := b.Upload(ctx, newPacedReadSeekCloser(ctx, c.pacer, file), getUploadOptions(o))
@@ -127,11 +127,11 @@ func (c *copier) UploadFile(ctx context.Context,
 }
 
 func (c *copier) uploadInternal(ctx context.Context,
-                                cancel context.CancelFunc,
-                                b *blockblob.Client,
-                                file io.ReadSeekCloser,
-                                fileSize int64,
-                                o *blockblob.UploadFileOptions) error {
+	cancel context.CancelFunc,
+	b *blockblob.Client,
+	file io.ReadSeekCloser,
+	fileSize int64,
+	o *blockblob.UploadFileOptions) error {
 	// short hand for routines to report and error
 	errorChannel := make(chan error)
 	postError := func(err error) {
@@ -156,6 +156,10 @@ func (c *copier) uploadInternal(ctx context.Context,
 		if err != nil {
 			postError(err)
 		}
+
+		//Return the buffer
+		c.slicePool.ReturnSlice(buff)
+		c.cacheLimiter.Remove(int64(len(buff)))
 		if o.Progress != nil {
 			o.Progress(int64(len(buff)))
 		}
