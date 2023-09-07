@@ -33,6 +33,10 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+    maxUploadBlobBytes = 5000 * 1024 * 1024
+)
+
 type nopCloser struct {
 	io.ReadSeeker
 }
@@ -117,7 +121,7 @@ func (c *copier) UploadFile(ctx context.Context,
 		return err
 	}
 
-	if fileSize <= blockblob.MaxUploadBlobBytes { //perform a single thread copy here.
+	if (o.BlockSize >= fileSize && fileSize <= maxUploadBlobBytes) { //perform a single thread copy here.
 		_, err := b.Upload(ctx, newPacedReadSeekCloser(ctx, c.pacer, file), getUploadOptions(o))
 		return err
 	}
